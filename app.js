@@ -1,310 +1,337 @@
-import * as THREE from './three.module.min.js'; 
-import { OrbitControls } from './orbitcontrols.js'; 
+import * as THREE from './three.module.min.js';
+import { OrbitControls } from './orbitcontrols.js';
 
 let scene, camera, renderer, controls;
-let earth; 
+let sun; // Keep a reference to the sun mesh
+let earth;
 let venus;
 let mars;
 let mercury;
-const neos = []; 
+const neos = [];
 let animationSpeed = 0.5; // Base speed for NEO animations
 const textureLoader = new THREE.TextureLoader(); // Texture loader for Sun and Earth
 let solarSystemGroup; // Group for solar system objects
 let earthLabel;
 let venusLabel;
 let marsLabel;
-let mercuryLabel;// Variable to hold the Earth label
+let mercuryLabel; // Variable to hold the Earth label
 let animationearth = 1;
 let currentNeoIndex = 0; // Keep track of the current NEO index
 const nPerFetch = 10; // Number of NEOs to fetch each time
 
 
-const apiKey = 'ASG4LGoAB7zG3a7hkknh3K35FK68ijpuH8tfEBbY'; 
+const apiKey = 'ASG4LGoAB7zG3a7hkknh3K35FK68ijpuH8tfEBbY';
 let page = 0;
 const neoUrl = `https://api.nasa.gov/neo/rest/v1/neo/browse?api_key=${apiKey}`;
 
 function init() {
     // Initialize scene, camera, and renderer
     scene = new THREE.Scene();
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000); // Set camera FOV to 75
-    camera.position.set(0, 100, 300); // Position the camera fixed above the solar system
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000); // Increased far plane
+    camera.position.set(0, 150, 350); // Adjusted camera position
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
+    // --- SHADOWS DISABLED FOR DEBUGGING ---
+    // renderer.shadowMap.enabled = true;
+    // renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     document.body.appendChild(renderer.domElement);
 
-    // Initialize controls on solar system group
+    // Initialize controls
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.1;
+    controls.enableZoom = true;
+    controls.enablePan = true; // OrbitControls handles panning with mouse/touch
+
+    // Solar system group
     solarSystemGroup = new THREE.Group();
-    scene.add(solarSystemGroup); // Add solar system group to the scene
+    scene.add(solarSystemGroup);
 
-    controls = new OrbitControls(solarSystemGroup, renderer.domElement);
-    controls.enableZoom = true; // Disable zoom
-    controls.enablePan = false; // Disable panning
-    controls.enableDamping = true; // Enable damping (inertia)
-    controls.dampingFactor = 0.25; // Set damping factor
-
-    // Add ambient light for better visibility
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5); // Soft white light
+    // --- ADJUSTED LIGHTING FOR DEBUGGING --- 
+    // Use simpler lighting while debugging
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); // Slightly brighter ambient
     scene.add(ambientLight);
-
-    // Add directional light for shading
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5); // Directional light
-    directionalLight.position.set(1, 1, 1).normalize();
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8); // Bring back directional light
+    directionalLight.position.set(50, 100, 100); // Position it reasonably
     scene.add(directionalLight);
+    // --- Point light disabled for now ---
+    // const pointLight = new THREE.PointLight(0xffffff, 1.5, 2000);
+    // pointLight.position.set(0, 0, 0);
+    // pointLight.castShadow = true; // Shadow casting disabled
+    // pointLight.shadow.mapSize.width = 1024;
+    // pointLight.shadow.mapSize.height = 1024;
+    // pointLight.shadow.camera.near = 0.5;
+    // pointLight.shadow.camera.far = 1500;
+    // scene.add(pointLight);
 
-    createStarryBackground(); // Create starry background
-    createSun(); // Create the Sun
-    createEarth(); 
-    createMars();   // New function for Mars
-    createVenus();  // New function for Venus
-    createMercury(); // New function for Mercury// Create Earth
+
+    createStarryBackground();
+    createSun();
+    createEarth();
+    createMars();
+    createVenus();
+    createMercury();
 
     document.addEventListener('keydown', handleKeyDown, false);
-    window.addEventListener('resize', onWindowResize, false); // Handle window resize
-    document.getElementById('zoomIn').addEventListener('click', zoomIn); // Zoom In button
-    document.getElementById('zoomOut').addEventListener('click', zoomOut); // Zoom Out button
-    document.getElementById('toggleOrbits').addEventListener('click', toggleOrbits); // Toggle orbits visibility
-    document.getElementById('resetPositions').addEventListener('click', resetNEOs); // Reset NEO positions
-    document.getElementById('increaseSpeed').addEventListener('click', () => changeAnimationSpeed(1.2)); // Increase speed button
-    document.getElementById('decreaseSpeed').addEventListener('click', () => changeAnimationSpeed(0.7)); // Decrease speed button
+    window.addEventListener('resize', onWindowResize, false);
+    document.getElementById('zoomIn').addEventListener('click', zoomIn);
+    document.getElementById('zoomOut').addEventListener('click', zoomOut);
+    document.getElementById('toggleOrbits').addEventListener('click', toggleOrbits);
+    document.getElementById('resetPositions').addEventListener('click', resetNEOs);
+    document.getElementById('increaseSpeed').addEventListener('click', () => changeAnimationSpeed(1.2));
+    document.getElementById('decreaseSpeed').addEventListener('click', () => changeAnimationSpeed(0.7));
     document.getElementById('loadMoreNEOs').addEventListener('click', loadMoreNEOs);
     document.getElementById('previousNEOs').addEventListener('click', loadPreviousNEOs);
-    animate(); // Start the animation loop
+    animate();
 }
 
 function handleKeyDown(event) {
     const keyName = event.key;
+    const moveSpeed = 5; // Keep WASD speed
+    const verticalMoveSpeed = 5; // Vertical speed for Arrow Keys
 
-    // Adjust camera position based on key pressed
     switch (keyName) {
+        // Arrow Keys for direct camera position manipulation (vertical/horizontal)
         case 'ArrowUp':
-            camera.position.y += 1; // Move up
+            camera.position.y += verticalMoveSpeed;
             break;
         case 'ArrowDown':
-            camera.position.y -= 1; // Move down
+            camera.position.y -= verticalMoveSpeed;
             break;
         case 'ArrowLeft':
-            camera.position.x -= 1; // Move left
+            camera.position.x -= moveSpeed; // Adjust horizontal movement
             break;
         case 'ArrowRight':
-            camera.position.x += 1; // Move right
+            camera.position.x += moveSpeed; // Adjust horizontal movement
             break;
-        case 'w': // Forward
-            camera.position.z -= 1;
+
+        // WASD for Forward/Backward/Strafe (relative to camera view)
+        case 'w':
+            const forwardW = camera.getWorldDirection(new THREE.Vector3());
+            // Move camera along its direction vector
+            camera.position.addScaledVector(forwardW, moveSpeed);
+            // Optionally move the controls target as well to keep focus
+            controls.target.addScaledVector(forwardW, moveSpeed); 
             break;
-        case 's': // Backward
-            camera.position.z += 1;
+        case 's':
+            const backwardS = camera.getWorldDirection(new THREE.Vector3());
+            camera.position.addScaledVector(backwardS, -moveSpeed);
+            controls.target.addScaledVector(backwardS, -moveSpeed);
             break;
-        case 'a': // Strafe left
-            camera.position.x -= 1;
+        case 'a':
+            const leftA = new THREE.Vector3().crossVectors(camera.up, camera.getWorldDirection(new THREE.Vector3())).normalize();
+            camera.position.addScaledVector(leftA, moveSpeed); // Strafe left
+            controls.target.addScaledVector(leftA, moveSpeed);
             break;
-        case 'd': // Strafe right
-            camera.position.x += 1;
+        case 'd':
+            const rightD = new THREE.Vector3().crossVectors(camera.getWorldDirection(new THREE.Vector3()), camera.up).normalize();
+            camera.position.addScaledVector(rightD, moveSpeed); // Strafe right
+            controls.target.addScaledVector(rightD, moveSpeed);
             break;
     }
+    // No need to call controls.update() if only camera.position is changed for Arrows,
+    // but it's needed if controls.target is changed for WASD.
+    // Calling it always is safe.
+    controls.update(); 
 }
 
 
-
-
-// Add floating name for celestial objects
-function createFloatingLabel(text, position) {
+// Add floating name for celestial objects (Reverted to closer-to-original logic)
+function createFloatingLabel(text, position, objectRadius = 10) {
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
-    const fontSize = 60; // Increased font size
-    canvas.width = 800; // Width of the canvas
-    canvas.height = 100; // Height of the canvas
+    const fontSize = 40; // Adjusted font size
+    // Adjust canvas width based on expected text length? Maybe fixed width is better.
+    canvas.width = 512; // Power of 2 often preferred for textures
+    canvas.height = 64; // Power of 2
 
-    context.font = `Bolder ${fontSize}px Arial`;
+    context.font = `Bold ${fontSize}px Arial`;
     context.fillStyle = 'white';
-    context.fillText(text, 10, fontSize); // Add some padding from the top
+    context.textAlign = 'center';
+    context.fillText(text, canvas.width / 2, fontSize * 0.8); // Adjust Y pos
 
     const texture = new THREE.CanvasTexture(canvas);
-    const spriteMaterial = new THREE.SpriteMaterial({ map: texture, depthTest: false }); // Ensure depth test is false
+    // --- ENABLE SIZE ATTENUATION (DEFAULT) ---
+    const spriteMaterial = new THREE.SpriteMaterial({
+        map: texture,
+        depthTest: false,
+        // sizeAttenuation: true, // Default is true, so no need to explicitly set
+    });
     const sprite = new THREE.Sprite(spriteMaterial);
-    sprite.scale.set(90, 15, 1); // Adjust the size of the label
-    sprite.position.copy(position.clone().add(new THREE.Vector3(0, 40, 0))); // Position label above the object
-    return sprite; // Return the label sprite
+
+    // --- ADJUST SPRITE SCALE FOR SIZE ATTENUATION ---
+    // This scale determines the base size at a certain distance. Needs tweaking.
+    sprite.scale.set(60, 8, 1); // Start with this scale, adjust as needed
+
+    // --- ADJUST LABEL OFFSET ---
+    const labelOffset = objectRadius + 15; // Gap above the object's radius
+    sprite.position.copy(position.clone().add(new THREE.Vector3(0, labelOffset, 0)));
+
+    return sprite;
 }
 
-// Create a starry background
+
 function createStarryBackground() {
-    const texture = textureLoader.load('stars.jpg'); // Load starry background texture
-    const backgroundGeometry = new THREE.SphereGeometry(500, 32, 32); // Large sphere
+    const texture = textureLoader.load('stars.jpg');
+    const backgroundGeometry = new THREE.SphereGeometry(1500, 64, 64);
     const backgroundMaterial = new THREE.MeshBasicMaterial({
         map: texture,
-        side: THREE.BackSide // Make the material visible from the inside
+        side: THREE.BackSide
     });
     const background = new THREE.Mesh(backgroundGeometry, backgroundMaterial);
-    scene.add(background); // Add the background to the scene
+    scene.add(background);
 }
 
 function createSun() {
-    const sunGeometry = new THREE.SphereGeometry(30, 32, 32); // Size of the Sun
-    const sunTexture = textureLoader.load('sun.jpg'); // Load Sun texture
+    const sunRadius = 30;
+    const sunGeometry = new THREE.SphereGeometry(sunRadius, 32, 32);
+    const sunTexture = textureLoader.load('sun.jpg');
     const sunMaterial = new THREE.MeshBasicMaterial({ map: sunTexture });
-    const sun = new THREE.Mesh(sunGeometry, sunMaterial);
-    solarSystemGroup.add(sun); // Add Sun to the solar system group
+    sun = new THREE.Mesh(sunGeometry, sunMaterial);
+    solarSystemGroup.add(sun);
 
-    // Create and store the label for Sun
-    const sunLabel = createFloatingLabel('Sun', sun.position); // Create label for Sun
-    solarSystemGroup.add(sunLabel); // Attach label to solar system group
-
-    // Position the label above the Sun
-    sunLabel.position.copy(sun.position.clone().add(new THREE.Vector3(2, 25, 0))); // Position label above the Sun
+    const sunLabel = createFloatingLabel('Sun', sun.position, sunRadius);
+    solarSystemGroup.add(sunLabel);
+    // Position is updated during animation loop now
 }
 
 function createEarth() {
-    const earthGeometry = new THREE.SphereGeometry(17, 32, 32); // Adjusted radius for Earth
-    const earthTexture = textureLoader.load('earth.jpg'); // Load Earth texture
+    const earthRadius = 17;
+    const earthGeometry = new THREE.SphereGeometry(earthRadius, 32, 32);
+    const earthTexture = textureLoader.load('earth.jpg');
     const earthMaterial = new THREE.MeshBasicMaterial({ map: earthTexture });
     earth = new THREE.Mesh(earthGeometry, earthMaterial);
-    earth.position.set(110, 0, 0); // Reduced initial position for Earth's orbit
-    solarSystemGroup.add(earth); // Add Earth to the solar system group
+    earth.position.set(110, 0, 0);
+    solarSystemGroup.add(earth);
 
-    // Create and store the label for Earth
-    earthLabel = createFloatingLabel('Earth', earth.position); // Create label for Earth
-    solarSystemGroup.add(earthLabel); // Attach label to solar system group
-
-    // Add orbit line for Earth
-    addOrbitLineAroundEarth(110); // Added orbit line for Earth
-
-    // Initialize Earth's angle for animation
+    earthLabel = createFloatingLabel('Earth', earth.position, earthRadius);
+    solarSystemGroup.add(earthLabel);
+    addOrbitLineForPlanet(110);
     earth.angle = 0;
 }
 
 function createMars() {
-    const marsGeometry = new THREE.SphereGeometry(10, 32, 32); // Adjusted radius for Mars
-    const marsTexture = textureLoader.load('mars.jpg'); // Load Mars texture
+    const marsRadius = 10;
+    const marsGeometry = new THREE.SphereGeometry(marsRadius, 32, 32);
+    const marsTexture = textureLoader.load('mars.jpg');
     const marsMaterial = new THREE.MeshBasicMaterial({ map: marsTexture });
     mars = new THREE.Mesh(marsGeometry, marsMaterial);
-    mars.position.set(140, 0, 0); // Position for Mars's orbit
-    solarSystemGroup.add(mars); // Add Mars to the solar system group
+    mars.position.set(140, 0, 0);
+    solarSystemGroup.add(mars);
 
-    // Create and store the label for Mars
-    marsLabel = createFloatingLabel('Mars', mars.position); // Create label for Mars
-    solarSystemGroup.add(marsLabel); // Attach label to solar system group
-
-    // Add orbit line for Mars
-    addOrbitLineAroundEarth(140); 
-
-    // Initialize Mars's angle for animation
+    marsLabel = createFloatingLabel('Mars', mars.position, marsRadius);
+    solarSystemGroup.add(marsLabel);
+    addOrbitLineForPlanet(140);
     mars.angle = 0;
 }
 
 function createVenus() {
-    const venusGeometry = new THREE.SphereGeometry(12, 32, 32); // Adjusted radius for Venus
-    const venusTexture = textureLoader.load('venus.jpg'); // Load Venus texture
+    const venusRadius = 12;
+    const venusGeometry = new THREE.SphereGeometry(venusRadius, 32, 32);
+    const venusTexture = textureLoader.load('venus.jpg');
     const venusMaterial = new THREE.MeshBasicMaterial({ map: venusTexture });
     venus = new THREE.Mesh(venusGeometry, venusMaterial);
-    venus.position.set(75, 0, 0); // Position for Venus's orbit
-    solarSystemGroup.add(venus); // Add Venus to the solar system group
+    venus.position.set(75, 0, 0);
+    solarSystemGroup.add(venus);
 
-    // Create and store the label for Venus
-    venusLabel = createFloatingLabel('Venus', venus.position); // Create label for Venus
-    solarSystemGroup.add(venusLabel); // Attach label to solar system group
-
-    // Add orbit line for Venus
-    addOrbitLineAroundEarth(75); // Added orbit line for Venus
-
-    // Initialize Venus's angle for animation
+    venusLabel = createFloatingLabel('Venus', venus.position, venusRadius);
+    solarSystemGroup.add(venusLabel);
+    addOrbitLineForPlanet(75);
     venus.angle = 0;
 }
 
 function createMercury() {
-    const mercuryGeometry = new THREE.SphereGeometry(8, 32, 32); // Adjusted radius for Mercury
-    const mercuryTexture = textureLoader.load('mercury.jpg'); // Load Mercury texture
+    const mercuryRadius = 8;
+    const mercuryGeometry = new THREE.SphereGeometry(mercuryRadius, 32, 32);
+    const mercuryTexture = textureLoader.load('mercury.jpg');
     const mercuryMaterial = new THREE.MeshBasicMaterial({ map: mercuryTexture });
     mercury = new THREE.Mesh(mercuryGeometry, mercuryMaterial);
-    mercury.position.set(50, 0, 0); // Position for Mercury's orbit
-    solarSystemGroup.add(mercury); // Add Mercury to the solar system group
+    mercury.position.set(50, 0, 0);
+    solarSystemGroup.add(mercury);
 
-    // Create and store the label for Mercury
-    mercuryLabel = createFloatingLabel('Mercury', mercury.position); // Create label for Mercury
-    solarSystemGroup.add(mercuryLabel); // Attach label to solar system group
-
-    // Add orbit line for Mercury
-    addOrbitLineAroundEarth(50); // Added orbit line for Mercury
-
-    // Initialize Mercury's angle for animation
+    mercuryLabel = createFloatingLabel('Mercury', mercury.position, mercuryRadius);
+    solarSystemGroup.add(mercuryLabel);
+    addOrbitLineForPlanet(50);
     mercury.angle = 0;
 }
-function addOrbitLineAroundPlanet(distance) {
+
+function addOrbitLineForPlanet(distance) {
     const points = [];
-    const numPoints = 100; // Number of points to create for the orbit line
-
-    // Create a circle using parametric equations
+    const numPoints = 128;
     for (let i = 0; i <= numPoints; i++) {
-        const angle = (i / numPoints) * Math.PI * 2; // Full circle in radians
+        const angle = (i / numPoints) * Math.PI * 2;
         const x = distance * Math.cos(angle);
-        const y = distance * Math.sin(angle);
-        points.push(new THREE.Vector3(x, 0, y)); // Set y to 0 for a flat orbit
+        const z = distance * Math.sin(angle);
+        points.push(new THREE.Vector3(x, 0, z));
     }
-
-    // Create a geometry from the points
     const orbitGeometry = new THREE.BufferGeometry().setFromPoints(points);
-    const orbitMaterial = new THREE.LineBasicMaterial({ color: 0xFFFFFF, opacity: 0.5, transparent: true });
-    
+    const orbitMaterial = new THREE.LineBasicMaterial({ color: 0xcccccc, opacity: 0.4, transparent: true });
     const orbitLine = new THREE.LineLoop(orbitGeometry, orbitMaterial);
-    solarSystemGroup.add(orbitLine); // Add orbit line to solar system group
+    solarSystemGroup.add(orbitLine);
 }
 
-
-// Clear previously displayed NEOs from the scene
 function clearPreviousNEOs() {
     neos.forEach((neo) => {
-        solarSystemGroup.remove(neo.mesh); // Remove the NEO mesh
-        solarSystemGroup.remove(neo.orbitLine); // Remove the orbit line
-        solarSystemGroup.remove(neo.label); // Remove the label
+        if (neo.mesh) solarSystemGroup.remove(neo.mesh);
+        if (neo.orbitLine) solarSystemGroup.remove(neo.orbitLine);
+        if (neo.label) solarSystemGroup.remove(neo.label);
     });
-    neos.length = 0; // Clear the neos array
+    neos.length = 0;
 }
 
 async function fetchNEOs(startIndex = 0) {
     try {
-        const response = await fetch(`${neoUrl}&page=${page}`); // Include page in API call
+        const response = await fetch(`${neoUrl}&page=${page}`);
         const data = await response.json();
-        const neosData = data.near_earth_objects; // Get the NEOs data array
+        const neosData = data.near_earth_objects;
 
-        // Sort the NEOs by their miss distance (closest to farthest)
+        if (!neosData || neosData.length === 0) {
+            console.log("No more NEOs found on this page.");
+            document.getElementById('loadMoreNEOs').disabled = true;
+             document.getElementById('previousNEOs').disabled = (page <= 1);
+            return;
+        }
+
         const sortedNEOs = neosData.sort((a, b) => {
-            const distanceA = a.close_approach_data?.[0]?.miss_distance?.kilometers || Infinity; // Default to Infinity if missing
-            const distanceB = b.close_approach_data?.[0]?.miss_distance?.kilometers || Infinity; // Default to Infinity if missing
+            const distanceA = a.close_approach_data?.[0]?.miss_distance?.kilometers || Infinity;
+            const distanceB = b.close_approach_data?.[0]?.miss_distance?.kilometers || Infinity;
             return parseFloat(distanceA) - parseFloat(distanceB);
         });
         const neoTableData = [];
 
-        // Fetch the new NEOs based on the startIndex and nPerFetch
         for (const neoData of sortedNEOs.slice(startIndex, startIndex + nPerFetch)) {
+             if (!neoData || !neoData.orbital_data || !neoData.close_approach_data || !neoData.close_approach_data[0]) {
+                 console.warn("Skipping NEO with incomplete data:", neoData?.name || "Unknown");
+                 continue;
+             }
             const name = neoData.name;
-            const eccentricity = neoData.orbital_data.eccentricity;
-            const semiMajorAxis = neoData.orbital_data.semi_major_axis; // Get semi-major axis in AU
-            const semiMinorAxis = semiMajorAxis * Math.sqrt(1 - eccentricity ** 2); // Calculate semi-minor axis
-            const inclination = neoData.orbital_data.inclination; // Orbital inclination
-            const relativeVelocity = parseFloat(neoData.close_approach_data[0].relative_velocity.kilometers_per_second); // Use neoData instead of neo
+            const eccentricity = parseFloat(neoData.orbital_data.eccentricity);
+            const semiMajorAxisAU = parseFloat(neoData.orbital_data.semi_major_axis);
+            const inclination = parseFloat(neoData.orbital_data.inclination);
+            const relativeVelocity = parseFloat(neoData.close_approach_data[0].relative_velocity.kilometers_per_second);
+            const semiMinorAxisAU = semiMajorAxisAU * Math.sqrt(1 - eccentricity ** 2);
             const speed = (relativeVelocity / 2000);
-            const estimatedDiameterMeters = neoData.estimated_diameter.meters.estimated_diameter_max;
+            const estimatedDiameterMeters = neoData.estimated_diameter?.meters?.estimated_diameter_max || 10;
             const orbitingBody = neoData.close_approach_data[0].orbiting_body;
             const isPotentiallyHazardous = neoData.is_potentially_hazardous_asteroid;
 
-            // Push NEO data into the table array
             neoTableData.push({
                 name: name,
                 estimated_diameter_meters: estimatedDiameterMeters,
                 eccentricity: eccentricity,
                 inclination: inclination,
-                relative_velocity: relativeVelocity, // Add Relative Velocity
+                relative_velocity: relativeVelocity,
                 orbiting_body: orbitingBody,
                 is_potentially_hazardous: isPotentiallyHazardous
             });
-            const neo = createNEO(name, eccentricity, semiMajorAxis, semiMinorAxis, inclination, speed); // Ensure speed is passed
+            const neo = createNEO(name, eccentricity, semiMajorAxisAU, semiMinorAxisAU, inclination, speed, isPotentiallyHazardous, estimatedDiameterMeters);
             neos.push(neo);
-            solarSystemGroup.add(neo.mesh); // Add NEO mesh to the solar system group
-            solarSystemGroup.add(neo.orbitLine); // Add NEO orbit line to the solar system group
-            solarSystemGroup.add(neo.label); // Add NEO label to the solar system group
+            solarSystemGroup.add(neo.mesh);
+            solarSystemGroup.add(neo.orbitLine);
+            solarSystemGroup.add(neo.label);
         }
 
-        // Add NEO data to the table
         addNEOToTable(neoTableData);
         // Update the current index for the next fetch
         if (sortedNEOs.length >= nPerFetch) {
@@ -319,203 +346,163 @@ async function fetchNEOs(startIndex = 0) {
     }
 }
 
-// Function to load more NEOs (pagination)
 async function loadMoreNEOs() {
     clearPreviousNEOs();
+     console.log(`Loading next batch, current page index before fetch: ${page}`);
     await fetchNEOs(currentNeoIndex);
-    console.log(page); // Fetch the next batch of NEOs
 }
 async function loadPreviousNEOs() {
     if(page==1) page=1;
     if (page > 1) {
-        page=page-2; // Move to the previous page
-        clearPreviousNEOs(); // Clear the current NEOs from the scene
-        await fetchNEOs(currentNeoIndex); // Fetch and display the previous batch of NEOs
+        page = page - 2;
+        console.log(`Loading previous batch, setting page index to: ${page}`);
+        clearPreviousNEOs();
+        await fetchNEOs(currentNeoIndex);
     } else {
-        console.log('No previous NEOs to load'); // Log message for no previous NEOs
+        console.log('No previous NEOs to load');
+         document.getElementById('previousNEOs').disabled = true;
     }
-    console.log(page);
 }
 
-console.log(page);
+fetchNEOs(currentNeoIndex);
 
-
-// Call the initial fetch with index 0
-fetchNEOs(currentNeoIndex); // Initial load
-
-
-// Create a NEO (Near-Earth Object) with given parameters
-function createNEO(name, eccentricity, semiMajorAxis, semiMinorAxis, inclination, speed) {
-    const neoGeometry = new THREE.SphereGeometry(3, 32, 32); // NEOs are smaller than planets
-    const neoMaterial = new THREE.MeshBasicMaterial({ color: 0xcccccc });
+function createNEO(name, eccentricity, semiMajorAxisAU, semiMinorAxisAU, inclination, speed, isPHA, diameter) {
+    const visualSize = Math.max(1, Math.min(8, Math.log(diameter / 10 + 1) * 2));
+    const neoGeometry = new THREE.SphereGeometry(visualSize, 16, 16);
+    const neoColor = isPHA ? 0xff4500 : 0xcccccc;
+    const neoMaterial = new THREE.MeshBasicMaterial({ color: neoColor });
     const neoMesh = new THREE.Mesh(neoGeometry, neoMaterial);
 
-    // Initialize NEO's position and orbital properties
-    neoMesh.angle = Math.random() * Math.PI * 2; // Random starting angle
+    const distanceScale = 150;
+    neoMesh.semiMajorAxis = semiMajorAxisAU * distanceScale;
+    neoMesh.semiMinorAxis = semiMinorAxisAU * distanceScale;
+    neoMesh.angle = Math.random() * Math.PI * 2;
     neoMesh.eccentricity = eccentricity;
-    neoMesh.semiMajorAxis = semiMajorAxis * 150; // Scale the semi-major axis for visualization
-    neoMesh.semiMinorAxis = semiMinorAxis * 150; // Scale the semi-minor axis for visualization
-    neoMesh.inclination = inclination; // Keep this for potential use later
-    neoMesh.speed = speed; // Assign the speed to neoMesh
+    neoMesh.inclination = THREE.MathUtils.degToRad(inclination);
+    neoMesh.speed = speed;
 
-    const neoPosition = new THREE.Vector3(
-        neoMesh.semiMajorAxis * Math.cos(neoMesh.angle),
-        0, // Set Y position to 0
-        neoMesh.semiMinorAxis * Math.sin(neoMesh.angle)
-    );
-    neoMesh.position.copy(neoPosition);
+    const initialX = neoMesh.semiMajorAxis * Math.cos(neoMesh.angle);
+    const initialZ = neoMesh.semiMinorAxis * Math.sin(neoMesh.angle);
+    neoMesh.position.set(initialX, 0, initialZ);
 
-    // Create the orbit line
-    const orbitLine = createOrbitLine(neoMesh.semiMajorAxis, neoMesh.semiMinorAxis, 0); // Set inclination to 0
-    orbitLine.position.set(0, 0, 0); // Orbit line is centered around the origin
+    const orbitLine = createOrbitLine(neoMesh.semiMajorAxis, neoMesh.semiMinorAxis, neoMesh.inclination, isPHA);
+    neoMesh.position.applyAxisAngle(new THREE.Vector3(1, 0, 0), neoMesh.inclination);
 
-    // Create a floating label for the NEO
-    const neoLabel = createFloatingLabel(name, neoMesh.position);
+    const neoLabel = createFloatingLabel(name, neoMesh.position, visualSize);
     return { mesh: neoMesh, orbitLine, label: neoLabel };
 }
 
-
-
-// Create an elliptical orbit line for NEOs
-function createOrbitLine(semiMajorAxis, semiMinorAxis, inclination) {
+function createOrbitLine(semiMajorAxis, semiMinorAxis, inclinationRad, isPHA) {
     const numSegments = 128;
     const orbitPoints = [];
-
-    for (let i = 0; i <= numSegments; i++) {
-        const theta = (i / numSegments) * Math.PI * 2;
-        const x = semiMajorAxis * Math.cos(theta);
-        const z = semiMinorAxis * Math.sin(theta);
-        orbitPoints.push(new THREE.Vector3(x, 0, z)); // Y position is 0 for flat orbit
-    }
-
-    const orbitGeometry = new THREE.BufferGeometry().setFromPoints(orbitPoints);
-    const orbitMaterial = new THREE.LineBasicMaterial({ color: 0xffcc00 });
-    const orbitLine = new THREE.Line(orbitGeometry, orbitMaterial);
-    // No rotation for the orbit since it's flat
-    return orbitLine;
-}
-
-
-// Function to reset NEO positions to initial values
-function resetNEOs() {
-    neos.forEach((neo) => {
-        neo.mesh.angle = Math.random() * Math.PI * 2; // Reset the starting angle for each NEO
-        const neoPosition = new THREE.Vector3(
-            neo.mesh.semiMajorAxis * Math.cos(neo.mesh.angle),
-            0,
-            neo.mesh.semiMinorAxis * Math.sin(neo.mesh.angle)
-        );
-        neo.mesh.position.copy(neoPosition); // Reset position based on initial angle
-        neo.label.position.copy(neo.mesh.position.clone().add(new THREE.Vector3(0, 25, 0))); // Move label accordingly
-    });
-}
-
-// Function to zoom in
-function zoomIn() {
-    camera.position.z -= 10; // Move the camera closer
-    controls.update(); // Update the controls
-}
-
-// Function to zoom out
-function zoomOut() {
-    camera.position.z += 10; // Move the camera farther away
-    controls.update(); // Update the controls
-}
-
-
-
-function changeAnimationSpeed(multiplier) {
-    animationSpeed *= multiplier;
-}
-
-
-// Toggle visibility of NEO orbits
-function toggleOrbits() {
-    neos.forEach((neo) => {
-        neo.orbitLine.visible = !neo.orbitLine.visible; // Toggle orbit visibility
-    });
-}
-
-// Add an elliptical orbit around Earth
-function addOrbitLineAroundEarth(semiMajorAxis) {
-    const semiMinorAxis = semiMajorAxis * 0.8; // Set the semi-minor axis slightly smaller
-    const numSegments = 128;
-    const orbitPoints = [];
-
     for (let i = 0; i <= numSegments; i++) {
         const theta = (i / numSegments) * Math.PI * 2;
         const x = semiMajorAxis * Math.cos(theta);
         const z = semiMinorAxis * Math.sin(theta);
         orbitPoints.push(new THREE.Vector3(x, 0, z));
     }
-
     const orbitGeometry = new THREE.BufferGeometry().setFromPoints(orbitPoints);
-    const orbitMaterial = new THREE.LineBasicMaterial({ color: 0x00ccff });
+    const orbitColor = isPHA ? 0xff8c00 : 0xffcc00;
+    const orbitMaterial = new THREE.LineBasicMaterial({ color: orbitColor, opacity: 0.7, transparent: true });
     const orbitLine = new THREE.Line(orbitGeometry, orbitMaterial);
-    solarSystemGroup.add(orbitLine);
+    orbitLine.rotation.x = inclinationRad;
+    return orbitLine;
 }
 
-// Function to animate the solar system
-function animate() {
-    requestAnimationFrame(animate); // Call animate recursively
-    controls.update(); // Update the OrbitControls
-
-    animateEarth();
-    animateMars();
-    animateMercury();
-    animateVenus();// Animate Earth's orbit
-    animateNEOs(); // Animate NEOs
-
-    renderer.render(scene, camera); // Render the scene
-}
-
-// Function to animate the Earth's orbit
-function animateEarth() {
-    earth.angle += 0.005 * animationearth; // Adjust Earth's angle in orbit
-    earth.position.x = 110 * Math.cos(earth.angle); // Update Earth's X position
-    earth.position.z = 90 * Math.sin(earth.angle); // Update Earth's Z position
-    earthLabel.position.copy(earth.position.clone().add(new THREE.Vector3(0, 25, 0))); // Update the Earth label position
-}
-function animateMercury() {
-    mercury.angle += 0.008 * animationearth; // Adjust Earth's angle in orbit
-    mercury.position.x = 50 * Math.cos(mercury.angle); // Update Earth's X position
-    mercury.position.z = 40 * Math.sin(mercury.angle); // Update Earth's Z position
-    mercuryLabel.position.copy(mercury.position.clone().add(new THREE.Vector3(0, 25, 0))); // Update the Earth label position
-}
-function animateVenus() {
-    venus.angle += 0.007 * animationearth; // Adjust Earth's angle in orbit
-    venus.position.x = 75 * Math.cos(venus.angle); // Update Earth's X position
-    venus.position.z = 55 * Math.sin(venus.angle); // Update Earth's Z position
-    venusLabel.position.copy(venus.position.clone().add(new THREE.Vector3(0, 25, 0))); // Update the Earth label position
-}
-function animateMars() {
-    mars.angle += 0.003 * animationearth; // Adjust Earth's angle in orbit
-    mars.position.x = 140 * Math.cos(mars.angle); // Update Earth's X position
-    mars.position.z = 120 * Math.sin(mars.angle); // Update Earth's Z position
-    marsLabel.position.copy(mars.position.clone().add(new THREE.Vector3(0, 25, 0))); // Update the Earth label position
-}
-
-// Function to animate NEOs around the Sun
-function animateNEOs() {
+function resetNEOs() {
     neos.forEach((neo) => {
-        neo.mesh.angle += neo.mesh.speed * animationSpeed; // Increment the angle for the NEO's rotation
+        neo.mesh.angle = Math.random() * Math.PI * 2;
+        const initialX = neo.mesh.semiMajorAxis * Math.cos(neo.mesh.angle);
+        const initialZ = neo.mesh.semiMinorAxis * Math.sin(neo.mesh.angle);
+        neo.mesh.position.set(initialX, 0, initialZ);
+        neo.mesh.position.applyAxisAngle(new THREE.Vector3(1, 0, 0), neo.mesh.inclination);
 
-        // Calculate new 3D positions based on their orbital parameters
-        neo.mesh.position.x = neo.mesh.semiMajorAxis * Math.cos(neo.mesh.angle); // X position
-        neo.mesh.position.z = neo.mesh.semiMinorAxis * Math.sin(neo.mesh.angle); // Z position
-        neo.mesh.position.y = 0; // Set Y position to 0
-
-        neo.label.position.copy(neo.mesh.position.clone().add(new THREE.Vector3(0, 25, 0))); // Position the label above the NEO
+        // Update label position during reset
+        const visualSize = neo.mesh.geometry.parameters.radius;
+        const labelOffset = visualSize + 15; // Consistent offset
+        neo.label.position.copy(neo.mesh.position.clone().add(new THREE.Vector3(0, labelOffset, 0)));
     });
 }
 
+function zoomIn() {
+     camera.position.z -= 20;
+     controls.update();
+}
+
+function zoomOut() {
+     camera.position.z += 20;
+     controls.update();
+}
+
+function changeAnimationSpeed(multiplier) {
+    animationSpeed *= multiplier;
+    animationSpeed = Math.max(0.01, Math.min(10, animationSpeed));
+    console.log("Animation Speed:", animationSpeed);
+}
+
+function toggleOrbits() {
+    neos.forEach((neo) => {
+        if (neo.orbitLine) {
+             neo.orbitLine.visible = !neo.orbitLine.visible;
+        }
+    });
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+
+    // Update sun label position (since it doesn't move)
+    const sunRadius = sun.geometry.parameters.radius;
+    const sunLabel = solarSystemGroup.children.find(child => child instanceof THREE.Sprite && child.material.map.image?.getContext('2d')?.canvas.width === 512 && child.position.y > sunRadius); // Find sun label based on properties
+    if (sunLabel) {
+        const labelOffset = sunRadius + 15;
+        sunLabel.position.copy(sun.position.clone().add(new THREE.Vector3(0, labelOffset, 0)));
+    }
 
 
-// Handle window resize event
+    animatePlanet(earth, 110, 0.005 * animationearth, earthLabel, earth.geometry.parameters.radius);
+    animatePlanet(mars, 140, 0.003 * animationearth, marsLabel, mars.geometry.parameters.radius);
+    animatePlanet(mercury, 50, 0.008 * animationearth, mercuryLabel, mercury.geometry.parameters.radius);
+    animatePlanet(venus, 75, 0.007 * animationearth, venusLabel, venus.geometry.parameters.radius);
+    animateNEOs();
+    renderer.render(scene, camera);
+}
+
+// Added objectRadius parameter to correctly offset the label during animation
+function animatePlanet(planet, orbitRadius, angularSpeed, label, objectRadius) {
+    planet.angle += angularSpeed * animationSpeed;
+    planet.position.x = orbitRadius * Math.cos(planet.angle);
+    planet.position.z = orbitRadius * Math.sin(planet.angle);
+    planet.rotation.y += 0.005;
+    if (label) {
+        // Calculate offset based on actual radius + gap
+        const labelOffset = objectRadius + 15;
+        label.position.copy(planet.position.clone().add(new THREE.Vector3(0, labelOffset, 0)));
+    }
+}
+
+
+function animateNEOs() {
+    neos.forEach((neo) => {
+        neo.mesh.angle += neo.mesh.speed * animationSpeed;
+        const x = neo.mesh.semiMajorAxis * Math.cos(neo.mesh.angle);
+        const z = neo.mesh.semiMinorAxis * Math.sin(neo.mesh.angle);
+        neo.mesh.position.set(x, 0, z);
+        neo.mesh.position.applyAxisAngle(new THREE.Vector3(1, 0, 0), neo.mesh.inclination);
+        neo.mesh.rotation.y += 0.01;
+
+        // Update label position during animation
+        const visualSize = neo.mesh.geometry.parameters.radius;
+        const labelOffset = visualSize + 15; // Consistent offset
+        neo.label.position.copy(neo.mesh.position.clone().add(new THREE.Vector3(0, labelOffset, 0)));
+    });
+}
+
 function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-init(); // Initialize the scene
+init();
